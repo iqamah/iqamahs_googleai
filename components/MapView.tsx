@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import type { Masjid } from '../types';
 import { PlusIcon } from './Icons';
 
@@ -16,6 +16,7 @@ declare namespace L {
     remove(): void;
     setView(center: [number, number], zoom: number): L.Map;
     on(event: string, callback: (e: any) => void): void;
+    off(event: string, callback: (e: any) => void): void;
     flyTo(latlng: any, zoom?: number): void;
     fitBounds(bounds: LatLngBounds, options?: any): L.Map;
     invalidateSize(): void;
@@ -84,43 +85,61 @@ const createMasjidIcon = (isSelected: boolean) => {
 
 const MapView: React.FC<MapViewProps> = ({ masjids, selectedMasjid, onSelectMasjid }) => {
   const mapContainerRef = useRef<HTMLDivElement>(null);
-  const mapInstanceRef = useRef<L.Map | null>(null);
+  const [map, setMap] = useState<L.Map | null>(null);
   const markersRef = useRef<Map<number, L.Marker>>(new Map());
 
+  // Main initialization and sizing effect
   useEffect(() => {
-    if (mapContainerRef.current && !mapInstanceRef.current) {
-      const map = L.map(mapContainerRef.current, {
-        zoomControl: false
-      });
-      
-      L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
-        subdomains: 'abcd',
-        maxZoom: 20
-      }).addTo(map);
+    if (!mapContainerRef.current) return;
 
-      L.control.zoom({ position: 'bottomright' }).addTo(map);
+    const container = mapContainerRef.current;
 
-      mapInstanceRef.current = map;
+    // Initialize map immediately
+    const mapInstance = L.map(container, {
+      zoomControl: false,
+    });
 
-      map.on('click', () => {
-        onSelectMasjid(null);
-      });
-    }
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+      subdomains: 'abcd',
+      maxZoom: 20,
+    }).addTo(mapInstance);
+
+    L.control.zoom({ position: 'bottomright' }).addTo(mapInstance);
+    
+    setMap(mapInstance);
+
+    // Use ResizeObserver only for handling subsequent resizes
+    const resizeObserver = new ResizeObserver(() => {
+      if (mapInstance) {
+        mapInstance.invalidateSize();
+      }
+    });
+
+    resizeObserver.observe(container);
 
     return () => {
-      mapInstanceRef.current?.remove();
-      mapInstanceRef.current = null;
+      resizeObserver.disconnect();
+      mapInstance.remove();
+      setMap(null);
     };
-  }, []);
+  }, []); // Empty dependency array ensures this runs only on mount/unmount
 
+  // Interaction effect: Handle map clicks for deselection
   useEffect(() => {
-    const map = mapInstanceRef.current;
+    if (!map) return;
+    const clickHandler = () => onSelectMasjid(null);
+    map.on('click', clickHandler);
+    return () => {
+      map.off('click', clickHandler);
+    };
+  }, [map, onSelectMasjid]);
+
+  // Data effect: Manage markers based on filtered masjids
+  useEffect(() => {
     if (!map) return;
 
     const displayedMarkerIds = new Set(masjids.map(m => m.id));
-
-    // Remove markers that are no longer in the filtered list
     markersRef.current.forEach((marker, id) => {
       if (!displayedMarkerIds.has(id)) {
         marker.remove();
@@ -128,10 +147,8 @@ const MapView: React.FC<MapViewProps> = ({ masjids, selectedMasjid, onSelectMasj
       }
     });
 
-    // Add or update markers from the filtered list
     masjids.forEach(masjid => {
       let marker = markersRef.current.get(masjid.id);
-      
       if (!marker) {
         marker = L.marker([masjid.location.lat, masjid.location.lon]).addTo(map);
         marker.on('click', (e: any) => {
@@ -140,50 +157,39 @@ const MapView: React.FC<MapViewProps> = ({ masjids, selectedMasjid, onSelectMasj
         });
         markersRef.current.set(masjid.id, marker);
       }
-      
       const isSelected = selectedMasjid?.id === masjid.id;
       marker.setIcon(createMasjidIcon(isSelected));
       marker.setZIndexOffset(isSelected ? 1000 : 0);
     });
 
-  }, [masjids, selectedMasjid, onSelectMasjid]);
+  }, [masjids, selectedMasjid, onSelectMasjid, map]);
 
+  // Navigation effect: Fly to a selected masjid
   useEffect(() => {
-    const map = mapInstanceRef.current;
     if (!map || !selectedMasjid) return;
-
     const marker = markersRef.current.get(selectedMasjid.id);
     if (marker) {
       map.flyTo(marker.getLatLng(), 14);
     }
-  }, [selectedMasjid]);
+  }, [selectedMasjid, map]);
 
+  // Navigation effect: Fit bounds to show all (or one) masjid
   useEffect(() => {
-    const map = mapInstanceRef.current;
-    if (!map || masjids.length === 0) return;
+    if (!map || masjids.length === 0 || selectedMasjid) return;
     
-    // Don't auto-fit if a specific masjid is selected, let the other effect handle it.
-    if (selectedMasjid) return;
+    map.invalidateSize();
 
-    // Use a small timeout to ensure the map container has been sized by the browser,
-    // especially in responsive layouts. This prevents fitBounds from failing on initial load.
-    const timer = setTimeout(() => {
-      map.invalidateSize();
-      if (masjids.length > 1) {
-        const bounds = L.latLngBounds(masjids.map(m => [m.location.lat, m.location.lon]));
-        map.fitBounds(bounds, { padding: L.point(50, 50) });
-      } else if (masjids.length === 1) {
-        map.flyTo([masjids[0].location.lat, masjids[0].location.lon], 13);
-      }
-    }, 100);
-
-    return () => clearTimeout(timer);
-
-  }, [masjids, selectedMasjid]);
+    if (masjids.length > 1) {
+      const bounds = L.latLngBounds(masjids.map(m => [m.location.lat, m.location.lon]));
+      map.fitBounds(bounds, { padding: L.point(50, 50), maxZoom: 14 });
+    } else if (masjids.length === 1) {
+      map.flyTo([masjids[0].location.lat, masjids[0].location.lon], 13);
+    }
+  }, [masjids, selectedMasjid, map]);
 
   return (
-    <div className="relative w-full h-full">
-      <div ref={mapContainerRef} className="w-full h-full z-0" />
+    <div className="relative w-full h-full min-h-0">
+      <div ref={mapContainerRef} className="absolute inset-0 z-0 bg-green-900" />
       <button
         onClick={() => alert('Add New/Missing Praying Space button selected')}
         className="absolute top-4 right-4 z-10 flex items-center gap-2 px-3 py-2 text-sm font-semibold transition-colors duration-200 rounded-md shadow-lg bg-green-800/80 text-amber-300 hover:bg-green-700/90 backdrop-blur-sm focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-green-950 focus:ring-amber-400"
