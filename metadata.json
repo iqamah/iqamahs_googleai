@@ -1,0 +1,5 @@
+{
+  "name": "iqamahs",
+  "description": "An application to find prayer and Jumuah times for various masjids in the Houston area, with both a map and list view for easy navigation.",
+  "requestFramePermissions": []
+}
