@@ -94,10 +94,10 @@ const MapView: React.FC<MapViewProps> = ({ masjids, selectedMasjid, onSelectMasj
 
     const container = mapContainerRef.current;
 
-    // Initialize map immediately
+    // Initialize map with a default view (will be adjusted by fitBounds effect)
     const mapInstance = L.map(container, {
       zoomControl: false,
-    });
+    }).setView([37.7749, -122.4194], 10); // Default to San Francisco area
 
     L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
@@ -106,7 +106,12 @@ const MapView: React.FC<MapViewProps> = ({ masjids, selectedMasjid, onSelectMasj
     }).addTo(mapInstance);
 
     L.control.zoom({ position: 'bottomright' }).addTo(mapInstance);
-    
+
+    // Ensure map has correct size after DOM is fully rendered
+    setTimeout(() => {
+      mapInstance.invalidateSize();
+    }, 100);
+
     setMap(mapInstance);
 
     // Use ResizeObserver only for handling subsequent resizes
@@ -176,15 +181,20 @@ const MapView: React.FC<MapViewProps> = ({ masjids, selectedMasjid, onSelectMasj
   // Navigation effect: Fit bounds to show all (or one) masjid
   useEffect(() => {
     if (!map || masjids.length === 0 || selectedMasjid) return;
-    
-    map.invalidateSize();
 
-    if (masjids.length > 1) {
-      const bounds = L.latLngBounds(masjids.map(m => [m.location.lat, m.location.lon]));
-      map.fitBounds(bounds, { padding: L.point(50, 50), maxZoom: 14 });
-    } else if (masjids.length === 1) {
-      map.flyTo([masjids[0].location.lat, masjids[0].location.lon], 13);
-    }
+    // Small delay to ensure map container is fully sized
+    const timer = setTimeout(() => {
+      map.invalidateSize();
+
+      if (masjids.length > 1) {
+        const bounds = L.latLngBounds(masjids.map(m => [m.location.lat, m.location.lon]));
+        map.fitBounds(bounds, { padding: L.point(50, 50), maxZoom: 14 });
+      } else if (masjids.length === 1) {
+        map.flyTo([masjids[0].location.lat, masjids[0].location.lon], 13);
+      }
+    }, 150);
+
+    return () => clearTimeout(timer);
   }, [masjids, selectedMasjid, map]);
 
   return (
