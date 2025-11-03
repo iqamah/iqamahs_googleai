@@ -12,6 +12,26 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
       integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
       crossorigin=""></script>
+    <style>
+      /* Ensure Leaflet controls and attribution are visible */
+      .leaflet-control-zoom,
+      .leaflet-control-attribution {
+        z-index: 1000 !important;
+      }
+
+      /* Ensure bottom-right controls have proper spacing */
+      .leaflet-bottom.leaflet-right {
+        margin-bottom: 10px;
+        margin-right: 10px;
+      }
+
+      /* Make attribution text more visible */
+      .leaflet-control-attribution {
+        background-color: rgba(255, 255, 255, 0.9) !important;
+        padding: 2px 5px !important;
+        font-size: 11px !important;
+      }
+    </style>
   <script type="importmap">
 {
   "imports": {
